@@ -17,6 +17,8 @@ TEAMS = [
 ]
 BID_INCREMENT = 5_000  # Bid step
 
+ALLOWED_USERS = TEAMS + ["admin"]  # for login
+
 # -------------------------------
 # LOAD PLAYERS CSV
 # -------------------------------
@@ -54,9 +56,32 @@ if "highest_bidder" not in st.session_state:
     st.session_state.highest_bidder = None
 
 # -------------------------------
+# LOGIN SYSTEM
+# -------------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+
+if not st.session_state.logged_in:
+    st.title("🔐 Team Login")
+    username = st.text_input("Team Name")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if username in ALLOWED_USERS and password == username:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.success(f"✅ Logged in as **{username}**")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Invalid credentials. Hint: Team name = password")
+
+    st.stop()  # prevent rest of app from loading
+
+# -------------------------------
 # SIDEBAR NAVIGATION
 # -------------------------------
-st.sidebar.title("🏏 IPL Pro Auction")
+st.sidebar.title(f"🏏 IPL Auction — Logged in as: **{st.session_state.username}**")
 
 menu = st.sidebar.radio(
     "Navigate",
@@ -64,28 +89,29 @@ menu = st.sidebar.radio(
 )
 
 # -------------------------------
-# SIDEBAR ADMIN CONTROLS
+# ADMIN CONTROLS
 # -------------------------------
-st.sidebar.title("⚙️ Admin Controls")
+if st.session_state.username == "admin":
+    st.sidebar.title("⚙️ Admin Controls")
 
-if st.sidebar.button("▶️ Start Auction"):
-    st.session_state.auction_status = "running"
+    if st.sidebar.button("▶️ Start Auction"):
+        st.session_state.auction_status = "running"
 
-if st.sidebar.button("⏸️ Pause Auction"):
-    st.session_state.auction_status = "paused"
+    if st.sidebar.button("⏸️ Pause Auction"):
+        st.session_state.auction_status = "paused"
 
-if st.sidebar.button("🔄 Reset Auction"):
-    st.session_state.auction_status = "stopped"
-    st.session_state.current_index = 0
-    st.session_state.teams = {
-        team: {"players": [], "spent": 0, "budget_left": TEAM_BUDGET}
-        for team in TEAMS
-    }
-    st.session_state.unsold = []
-    st.session_state.highest_bid = 0
-    st.session_state.highest_bidder = None
-    clear_results()
-    st.rerun()
+    if st.sidebar.button("🔄 Reset Auction"):
+        st.session_state.auction_status = "stopped"
+        st.session_state.current_index = 0
+        st.session_state.teams = {
+            team: {"players": [], "spent": 0, "budget_left": TEAM_BUDGET}
+            for team in TEAMS
+        }
+        st.session_state.unsold = []
+        st.session_state.highest_bid = 0
+        st.session_state.highest_bidder = None
+        clear_results()
+        st.rerun()
 
 # -------------------------------
 # SIDEBAR FILTER
@@ -119,29 +145,33 @@ if menu == "🏟️ Auction Room":
         st.header(f"Player: **{player['Name']}** | Role: {player['Role']}")
         st.subheader(f"Base Price: ₹{player['BasePrice']:,}")
 
-        st.success(f"💰 Current Highest Bid: ₹{st.session_state.highest_bid:,} by {st.session_state.highest_bidder if st.session_state.highest_bidder else 'None'}")
+        st.success(
+            f"💰 Current Highest Bid: ₹{st.session_state.highest_bid:,} by {st.session_state.highest_bidder if st.session_state.highest_bidder else 'None'}"
+        )
 
-        # Bid Buttons for each team
-        bid_cols = st.columns(4)
-        for i, team in enumerate(TEAMS):
-            col = bid_cols[i % 4]
-            with col:
-                st.write(f"**{team}**")
-                st.write(f"💰 Budget: ₹{st.session_state.teams[team]['budget_left']:,}")
+        # -------------------------------
+        # Only team can raise bid
+        # -------------------------------
+        if st.session_state.username in TEAMS:
+            team = st.session_state.username
+            st.write(f"**Your Team:** {team}")
+            st.write(f"💰 Your Budget: ₹{st.session_state.teams[team]['budget_left']:,}")
 
-                can_bid = (
-                    st.session_state.teams[team]['budget_left'] >= st.session_state.highest_bid + BID_INCREMENT
-                )
-                if can_bid and st.session_state.auction_status == "running":
-                    if st.button(f"Raise +₹{BID_INCREMENT:,}", key=f"{team}_raise"):
-                        st.session_state.highest_bid += BID_INCREMENT
-                        st.session_state.highest_bidder = team
-                        st.rerun()
-                elif not can_bid:
-                    st.write("❌ Can't bid")
+            can_bid = (
+                st.session_state.teams[team]['budget_left'] >= st.session_state.highest_bid + BID_INCREMENT
+            )
+            if can_bid and st.session_state.auction_status == "running":
+                if st.button(f"Raise Bid +₹{BID_INCREMENT:,}"):
+                    st.session_state.highest_bid += BID_INCREMENT
+                    st.session_state.highest_bidder = team
+                    st.rerun()
+            elif not can_bid:
+                st.warning("❌ You don't have enough budget to bid!")
 
-        # ✅ Admin: Mark as SOLD
-        if st.session_state.auction_status == "running":
+        # -------------------------------
+        # Admin: Mark as SOLD or UNSOLD
+        # -------------------------------
+        if st.session_state.username == "admin" and st.session_state.auction_status == "running":
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("✅ Mark as SOLD!"):
@@ -164,7 +194,7 @@ if menu == "🏟️ Auction Room":
 
             with col2:
                 if st.button("🚫 Mark as UNSOLD"):
-                    st.warning(f"🚫 **{player['Name']}** marked UNSOLD by Admin.")
+                    st.warning(f"🚫 **{player['Name']}** marked UNSOLD.")
                     st.session_state.unsold.append(player['Name'])
                     save_result("UNSOLD", player['Name'], 0)
                     st.session_state.current_index += 1
@@ -176,7 +206,7 @@ if menu == "🏟️ Auction Room":
         st.success("✅ Auction Completed!")
 
 # -------------------------------
-# MAIN AREA: SQUADS VIEW
+# MAIN AREA: SQUADS
 # -------------------------------
 elif menu == "👥 Squads":
     st.title("👥 Team Squads Overview")
@@ -192,7 +222,6 @@ elif menu == "👥 Squads":
         else:
             st.info("No players yet.")
 
-    # ✅ Show Unsold players
     st.subheader("🚫 UNSOLD Players")
     if st.session_state.unsold:
         st.table(pd.DataFrame(st.session_state.unsold, columns=["Player"]))
