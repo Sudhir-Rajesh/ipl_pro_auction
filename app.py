@@ -1,4 +1,8 @@
 import streamlit as st
+# Compatibility patch for Streamlit rerun
+if not hasattr(st, "rerun"):
+    st.rerun = st.experimental_rerun
+
 import pandas as pd
 from auction_db import init_db, save_result, clear_results
 
